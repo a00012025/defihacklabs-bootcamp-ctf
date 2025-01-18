@@ -2,14 +2,10 @@
 pragma solidity ^0.8.13;
 
 import {Script} from "forge-std/Script.sol";
+import {console} from "forge-std/console.sol";
 
-interface IERC721 {
-    function safeTransferFrom(
-        address from,
-        address to,
-        uint256 tokenId,
-        bytes memory data
-    ) external;
+interface IChallenge9 {
+    function mintFlag(bytes32 _password) external;
 }
 
 contract Challenge9Script is Script {
@@ -17,15 +13,25 @@ contract Challenge9Script is Script {
 
     function run() public {
         uint256 privateKey = vm.envUint("PRIVATE_KEY");
+
+        // Calculate the new password
+        uint256 count = 0;
+        bytes32 password = 0x3dc09d7c41beb2799203bfb8cfd8d48dff230c3040f86166c3f108e4235fe4e8;
+
+        // Calculate mask: ~(bytes32(uint256(0xFF) << ((31 - (count % 32)) * 8)))
+        bytes32 mask = ~(bytes32(uint256(0xFF) << ((31 - (count % 32)) * 8)));
+
+        // Calculate new password
+        bytes32 newPassword = password & mask;
+
+        console.logBytes32(mask);
+        console.logBytes32(newPassword);
+
         vm.startBroadcast(privateKey);
 
-        IERC721 target = IERC721(0xDAa4Cac4F90693E73d1063204CaA4Ff5Ae94f330);
-
-        target.safeTransferFrom(
-            0x0000007EabfC2E6a6b33b21D2f73D58941BAb574,
-            0xDAa4Cac4F90693E73d1063204CaA4Ff5Ae94f330,
-            2,
-            hex"0000000000000000000000000000000000000000000000000000000000000029"
+        // Call mintFlag with the calculated password
+        IChallenge9(0xB2c756B0cE8A77f4d7E4A263552fb7aF892d4dDF).mintFlag(
+            newPassword
         );
 
         vm.stopBroadcast();
